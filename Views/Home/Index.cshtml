@@ -1,0 +1,165 @@
+﻿@{
+    ViewData["Title"] = "Dashboard - NwConsultas";
+}
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-4">
+                <i class="fas fa-chart-line"></i> Dashboard - Query Builder
+            </h1>
+        </div>
+    </div>
+
+    <!-- Estatísticas -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-white bg-primary">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="fas fa-database"></i> Queries Salvas
+                    </h5>
+                    <h2 class="card-text">@ViewBag.TotalQueries</h2>
+                    <a href="@Url.Action("Index", "SavedQueries")" class="btn btn-light btn-sm">Ver Todas</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="fas fa-play-circle"></i> Execuções
+                    </h5>
+                    <h2 class="card-text">@ViewBag.TotalExecutions</h2>
+                    <small>Total de execuções registradas</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-info">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="fas fa-plus-circle"></i> Nova Query
+                    </h5>
+                    <p class="card-text">Criar uma nova consulta visual</p>
+                    <a href="@Url.Action("Index", "QueryBuilder")" class="btn btn-light btn-sm">Criar Agora</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="fas fa-book"></i> Documentação
+                    </h5>
+                    <p class="card-text">Guia de uso do sistema</p>
+                    <a href="#" class="btn btn-light btn-sm">Saiba Mais</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Execuções Recentes -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-history"></i> Execuções Recentes</h5>
+                </div>
+                <div class="card-body">
+                    @if (ViewBag.RecentExecutions != null && ViewBag.RecentExecutions.Count > 0)
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Data/Hora</th>
+                                        <th>Query</th>
+                                        <th>Tempo (ms)</th>
+                                        <th>Linhas</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var execution in ViewBag.RecentExecutions)
+                                    {
+                                        <tr>
+                                            <td>@execution.ExecutedAt.ToString("dd/MM/yyyy HH:mm:ss")</td>
+                                            <td>
+                                                @if (execution.SavedQuery != null)
+                                                {
+                                                    <a href="@Url.Action("Details", "SavedQueries", new { id = execution.SavedQueryId })">
+                                                        @execution.SavedQuery.Name
+                                                    </a>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">Query não salva</span>
+                                                }
+                                            </td>
+                                            <td>@(execution.ExecutionTimeMs ?? 0)</td>
+                                            <td>@(execution.RowsReturned ?? 0)</td>
+                                            <td>
+                                                @if (execution.Success)
+                                                {
+                                                    <span class="badge bg-success">Sucesso</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger" title="@execution.ErrorMessage">Erro</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted">Nenhuma execução registrada ainda.</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ações Rápidas -->
+    <div class="row mt-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <i class="fas fa-tools fa-3x text-primary mb-3"></i>
+                    <h5 class="card-title">Query Builder</h5>
+                    <p class="card-text">Construa consultas SQL de forma visual</p>
+                    <a href="@Url.Action("Index", "QueryBuilder")" class="btn btn-primary">Acessar</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <i class="fas fa-folder-open fa-3x text-success mb-3"></i>
+                    <h5 class="card-title">Minhas Queries</h5>
+                    <p class="card-text">Gerencie suas consultas salvas</p>
+                    <a href="@Url.Action("Index", "SavedQueries")" class="btn btn-success">Acessar</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <i class="fas fa-download fa-3x text-info mb-3"></i>
+                    <h5 class="card-title">Exportações</h5>
+                    <p class="card-text">CSV, Excel e JSON disponíveis</p>
+                    <a href="#" class="btn btn-info disabled">Em breve</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+}
+

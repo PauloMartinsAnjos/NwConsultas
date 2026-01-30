@@ -1,0 +1,236 @@
+@model NwConsultas.Models.ViewModels.QueryResultViewModel
+
+@{
+    ViewData["Title"] = "Resultados da Query";
+}
+
+<div class="container-fluid mt-4">
+    <div class="row mb-3">
+        <div class="col-12">
+            <h1><i class="fas fa-table"></i> Resultados da Query</h1>
+            @if (!string.IsNullOrEmpty(Model.QueryName))
+            {
+                <p class="text-muted">Query: <strong>@Model.QueryName</strong></p>
+            }
+        </div>
+    </div>
+
+    @if (Model.Success)
+    {
+        <!-- Informações da Execução -->
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <div class="card bg-success text-white">
+                    <div class="card-body">
+                        <h6><i class="fas fa-check-circle"></i> Status</h6>
+                        <h4>Sucesso</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <h6><i class="fas fa-list"></i> Linhas Retornadas</h6>
+                        <h4>@Model.RowCount</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-primary text-white">
+                    <div class="card-body">
+                        <h6><i class="fas fa-clock"></i> Tempo de Execução</h6>
+                        <h4>@Model.ExecutionTimeMs ms</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Botões de Ação -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <button class="btn btn-success" onclick="exportToCsv()">
+                    <i class="fas fa-file-csv"></i> Exportar CSV
+                </button>
+                <button class="btn btn-success" onclick="exportToExcel()">
+                    <i class="fas fa-file-excel"></i> Exportar Excel
+                </button>
+                <button class="btn btn-info" onclick="exportToJson()">
+                    <i class="fas fa-file-code"></i> Exportar JSON
+                </button>
+                <a href="@Url.Action("Index", "QueryBuilder")" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Voltar ao Builder
+                </a>
+            </div>
+        </div>
+
+        <!-- SQL Executado -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5><i class="fas fa-code"></i> SQL Executado</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-dark text-white p-3"><code>@Model.GeneratedSql</code></pre>
+            </div>
+        </div>
+
+        <!-- Resultados -->
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-table"></i> Dados (@Model.RowCount linhas)</h5>
+            </div>
+            <div class="card-body">
+                @if (Model.Results != null && Model.Results.Rows.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table id="resultsTable" class="table table-striped table-hover table-sm">
+                            <thead class="table-dark">
+                                <tr>
+                                    @foreach (System.Data.DataColumn column in Model.Results.Columns)
+                                    {
+                                        <th>@column.ColumnName</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (System.Data.DataRow row in Model.Results.Rows)
+                                {
+                                    <tr>
+                                        @foreach (var item in row.ItemArray)
+                                        {
+                                            <td>@(item?.ToString() ?? "")</td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted">Nenhum resultado encontrado.</p>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Erro na Execução -->
+        <div class="alert alert-danger">
+            <h4><i class="fas fa-exclamation-triangle"></i> Erro ao Executar Query</h4>
+            <p><strong>Mensagem:</strong> @Model.ErrorMessage</p>
+            <p><strong>Tempo decorrido:</strong> @Model.ExecutionTimeMs ms</p>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5><i class="fas fa-code"></i> SQL que causou o erro</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-dark text-white p-3"><code>@Model.GeneratedSql</code></pre>
+            </div>
+        </div>
+
+        <a href="@Url.Action("Index", "QueryBuilder")" class="btn btn-primary">
+            <i class="fas fa-arrow-left"></i> Voltar ao Builder
+        </a>
+    }
+</div>
+
+@section Scripts {
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <!-- DataTables -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+    <script>
+        $(document).ready(function() {
+            // Inicializar DataTables
+            $('#resultsTable').DataTable({
+                pageLength: 25,
+                language: {
+                    url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/pt-BR.json'
+                },
+                order: []
+            });
+        });
+
+        // Preparar dados para exportação
+        function getTableData() {
+            const table = $('#resultsTable').DataTable();
+            const data = table.rows().data().toArray();
+            const headers = table.columns().header().toArray().map(h => $(h).text());
+            
+            return data.map(row => {
+                const obj = {};
+                headers.forEach((header, index) => {
+                    obj[header] = row[index];
+                });
+                return obj;
+            });
+        }
+
+        function exportToCsv() {
+            const data = JSON.stringify(getTableData());
+            fetch('/Export/Csv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    data: data,
+                    queryName: '@Model.QueryName',
+                    savedQueryId: @(Model.SavedQueryId ?? 0)
+                })
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '@(Model.QueryName ?? "resultados")_' + new Date().getTime() + '.csv';
+                a.click();
+            });
+        }
+
+        function exportToExcel() {
+            const data = JSON.stringify(getTableData());
+            fetch('/Export/Excel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    data: data,
+                    queryName: '@Model.QueryName',
+                    savedQueryId: @(Model.SavedQueryId ?? 0)
+                })
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '@(Model.QueryName ?? "resultados")_' + new Date().getTime() + '.xlsx';
+                a.click();
+            });
+        }
+
+        function exportToJson() {
+            const data = JSON.stringify(getTableData());
+            fetch('/Export/Json', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    data: data,
+                    queryName: '@Model.QueryName',
+                    savedQueryId: @(Model.SavedQueryId ?? 0)
+                })
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '@(Model.QueryName ?? "resultados")_' + new Date().getTime() + '.json';
+                a.click();
+            });
+        }
+    </script>
+}

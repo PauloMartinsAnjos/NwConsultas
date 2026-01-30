@@ -1,0 +1,572 @@
+// Query Builder JavaScript
+// Estado global da query em construção
+let queryBuilder = {
+    tables: [],
+    selectedColumns: [],
+    joins: [],
+    filters: [],
+    aliases: []
+};
+
+// Selecionartabela
+function selectTable(tableName) {
+    // Verificar se já foi selecionada
+    if (queryBuilder.tables.some(t => t.TableName === tableName)) {
+        alert('Tabela já selecionada!');
+        return;
+    }
+
+    // Adicionar à lista de tabelas selecionadas
+    queryBuilder.tables.push({
+        TableName: tableName,
+        TableAlias: null,
+        Columns: []
+    });
+
+    // Atualizar UI
+    updateSelectedTablesUI();
+
+    // Carregar colunas da tabela
+    loadTableColumns(tableName);
+}
+
+// Atualizar UI de tabelas selecionadas
+function updateSelectedTablesUI() {
+    const container = document.getElementById('selectedTables');
+    
+    if (queryBuilder.tables.length === 0) {
+        container.innerHTML = '<p class="text-muted">Nenhuma tabela selecionada</p>';
+        return;
+    }
+
+    let html = '<div class="list-group">';
+    queryBuilder.tables.forEach((table, index) => {
+        html += `
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-table"></i> ${table.TableName}</span>
+                <button class="btn btn-sm btn-danger" onclick="removeTable(${index})">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `;
+    });
+    html += '</div>';
+    
+    container.innerHTML = html;
+}
+
+// Remover tabela
+function removeTable(index) {
+    const tableName = queryBuilder.tables[index].TableName;
+    
+    // Remover tabela
+    queryBuilder.tables.splice(index, 1);
+    
+    // Remover colunas relacionadas
+    queryBuilder.selectedColumns = queryBuilder.selectedColumns.filter(c => c.TableName !== tableName);
+    
+    // Remover JOINs relacionados
+    queryBuilder.joins = queryBuilder.joins.filter(j => 
+        j.LeftTable !== tableName && j.RightTable !== tableName
+    );
+    
+    // Remover filtros relacionados
+    queryBuilder.filters = queryBuilder.filters.filter(f => f.TableName !== tableName);
+    
+    // Atualizar UI
+    updateSelectedTablesUI();
+    updateColumnsUI();
+}
+
+// Carregar colunas de uma tabela
+async function loadTableColumns(tableName) {
+    try {
+        const response = await fetch(`/QueryBuilder/GetTableColumns?tableName=${tableName}`);
+        const columns = await response.json();
+        
+        // Armazenar colunas na tabela
+        const table = queryBuilder.tables.find(t => t.TableName === tableName);
+        if (table) {
+            table.Columns = columns;
+        }
+        
+        // Atualizar UI de colunas
+        updateColumnsUI();
+    } catch (error) {
+        console.error('Erro ao carregar colunas:', error);
+        alert('Erro ao carregar colunas da tabela');
+    }
+}
+
+// Atualizar UI de colunas
+function updateColumnsUI() {
+    const container = document.getElementById('columnsContainer');
+    
+    if (queryBuilder.tables.length === 0) {
+        container.innerHTML = '<p class="text-muted">Selecione uma tabela para visualizar suas colunas</p>';
+        return;
+    }
+
+    let html = '';
+    queryBuilder.tables.forEach(table => {
+        html += `<h6 class="mt-3"><i class="fas fa-table"></i> ${table.TableName}</h6>`;
+        html += '<div class="row">';
+        
+        if (table.Columns && table.Columns.length > 0) {
+            table.Columns.forEach(column => {
+                const isSelected = queryBuilder.selectedColumns.some(
+                    c => c.TableName === table.TableName && c.ColumnName === column.ColumnName
+                );
+                
+                html += `
+                    <div class="col-md-6 mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" 
+                                   ${isSelected ? 'checked' : ''}
+                                   onchange="toggleColumn('${table.TableName}', '${column.ColumnName}', this.checked)">
+                            <label class="form-check-label">
+                                ${column.ColumnName} <small class="text-muted">(${column.DataType})</small>
+                            </label>
+                        </div>
+                        ${isSelected ? `
+                            <input type="text" class="form-control form-control-sm mt-1" 
+                                   placeholder="Alias (opcional)" 
+                                   onchange="setColumnAlias('${table.TableName}', '${column.ColumnName}', this.value)">
+                        ` : ''}
+                    </div>
+                `;
+            });
+        }
+        
+        html += '</div>';
+    });
+    
+    container.innerHTML = html;
+}
+
+// Toggle seleção de coluna
+function toggleColumn(tableName, columnName, isSelected) {
+    if (isSelected) {
+        // Adicionar coluna
+        const table = queryBuilder.tables.find(t => t.TableName === tableName);
+        const column = table?.Columns.find(c => c.ColumnName === columnName);
+        
+        if (column) {
+            queryBuilder.selectedColumns.push({
+                TableName: tableName,
+                ColumnName: columnName,
+                DataType: column.DataType,
+                IsNullable: column.IsNullable,
+                IsSelected: true
+            });
+        }
+    } else {
+        // Remover coluna
+        queryBuilder.selectedColumns = queryBuilder.selectedColumns.filter(
+            c => !(c.TableName === tableName && c.ColumnName === columnName)
+        );
+        
+        // Remover alias
+        queryBuilder.aliases = queryBuilder.aliases.filter(
+            a => !(a.TableName === tableName && a.ColumnName === columnName)
+        );
+    }
+    
+    updateColumnsUI();
+}
+
+// Definir alias de coluna
+function setColumnAlias(tableName, columnName, alias) {
+    // Remover alias existente
+    queryBuilder.aliases = queryBuilder.aliases.filter(
+        a => !(a.TableName === tableName && a.ColumnName === columnName)
+    );
+    
+    // Adicionar novo alias se não vazio
+    if (alias && alias.trim()) {
+        queryBuilder.aliases.push({
+            TableName: tableName,
+            ColumnName: columnName,
+            Alias: alias.trim()
+        });
+    }
+}
+
+// Adicionar JOIN
+function addJoin() {
+    if (queryBuilder.tables.length < 2) {
+        alert('Selecione pelo menos 2 tabelas para criar um JOIN');
+        return;
+    }
+
+    const container = document.getElementById('joinsContainer');
+    const index = queryBuilder.joins.length;
+    
+    let html = `
+        <div class="card mb-2" id="join-${index}">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <label>Tabela Esquerda</label>
+                        <select class="form-select form-select-sm" id="join-${index}-left-table">
+                            ${queryBuilder.tables.map(t => `<option value="${t.TableName}">${t.TableName}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Coluna Esquerda</label>
+                        <input type="text" class="form-control form-control-sm" id="join-${index}-left-column">
+                    </div>
+                    <div class="col-md-2">
+                        <label>Tipo JOIN</label>
+                        <select class="form-select form-select-sm" id="join-${index}-type">
+                            <option value="0">INNER</option>
+                            <option value="1">LEFT</option>
+                            <option value="2">RIGHT</option>
+                            <option value="3">FULL</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Tabela Direita</label>
+                        <select class="form-select form-select-sm" id="join-${index}-right-table">
+                            ${queryBuilder.tables.map(t => `<option value="${t.TableName}">${t.TableName}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Coluna Direita</label>
+                        <input type="text" class="form-control form-control-sm" id="join-${index}-right-column">
+                    </div>
+                    <div class="col-md-1">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-sm btn-danger w-100" onclick="removeJoin(${index})">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    if (queryBuilder.joins.length === 0) {
+        container.innerHTML = html;
+    } else {
+        container.insertAdjacentHTML('beforeend', html);
+    }
+    
+    queryBuilder.joins.push({
+        LeftTable: '',
+        LeftColumn: '',
+        RightTable: '',
+        RightColumn: '',
+        JoinType: 0
+    });
+}
+
+// Remover JOIN
+function removeJoin(index) {
+    queryBuilder.joins.splice(index, 1);
+    document.getElementById(`join-${index}`).remove();
+    
+    if (queryBuilder.joins.length === 0) {
+        document.getElementById('joinsContainer').innerHTML = '<p class="text-muted">Nenhum JOIN configurado</p>';
+    }
+}
+
+// Adicionar filtro
+function addFilter() {
+    if (queryBuilder.selectedColumns.length === 0) {
+        alert('Selecione pelo menos uma coluna antes de adicionar filtros');
+        return;
+    }
+
+    const container = document.getElementById('filtersContainer');
+    const index = queryBuilder.filters.length;
+    
+    let html = `
+        <div class="card mb-2" id="filter-${index}">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <label>Coluna</label>
+                        <select class="form-select form-select-sm" id="filter-${index}-column">
+                            ${queryBuilder.selectedColumns.map(c => 
+                                `<option value="${c.TableName}|${c.ColumnName}">${c.TableName}.${c.ColumnName}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label>Operador</label>
+                        <select class="form-select form-select-sm" id="filter-${index}-operator">
+                            <option value="0">=</option>
+                            <option value="1">!=</option>
+                            <option value="2">&gt;</option>
+                            <option value="3">&lt;</option>
+                            <option value="4">&gt;=</option>
+                            <option value="5">&lt;=</option>
+                            <option value="6">LIKE</option>
+                            <option value="7">IN</option>
+                            <option value="8">BETWEEN</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Valor</label>
+                        <input type="text" class="form-control form-control-sm" id="filter-${index}-value">
+                    </div>
+                    <div class="col-md-2">
+                        <label>Operador Lógico</label>
+                        <select class="form-select form-select-sm" id="filter-${index}-logic">
+                            <option value="0">AND</option>
+                            <option value="1">OR</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-sm btn-danger w-100" onclick="removeFilter(${index})">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    if (queryBuilder.filters.length === 0) {
+        container.innerHTML = html;
+    } else {
+        container.insertAdjacentHTML('beforeend', html);
+    }
+    
+    queryBuilder.filters.push({
+        Column: '',
+        TableName: '',
+        Operator: 0,
+        Value: '',
+        LogicalOperator: 0
+    });
+}
+
+// Remover filtro
+function removeFilter(index) {
+    queryBuilder.filters.splice(index, 1);
+    document.getElementById(`filter-${index}`).remove();
+    
+    if (queryBuilder.filters.length === 0) {
+        document.getElementById('filtersContainer').innerHTML = '<p class="text-muted">Nenhum filtro configurado</p>';
+    }
+}
+
+// Coletar dados dos JOINs
+function collectJoinsData() {
+    queryBuilder.joins.forEach((join, index) => {
+        const leftTable = document.getElementById(`join-${index}-left-table`)?.value || '';
+        const leftColumn = document.getElementById(`join-${index}-left-column`)?.value || '';
+        const rightTable = document.getElementById(`join-${index}-right-table`)?.value || '';
+        const rightColumn = document.getElementById(`join-${index}-right-column`)?.value || '';
+        const joinType = parseInt(document.getElementById(`join-${index}-type`)?.value || '0');
+        
+        join.LeftTable = leftTable;
+        join.LeftColumn = leftColumn;
+        join.RightTable = rightTable;
+        join.RightColumn = rightColumn;
+        join.JoinType = joinType;
+    });
+}
+
+// Coletar dados dos filtros
+function collectFiltersData() {
+    queryBuilder.filters.forEach((filter, index) => {
+        const columnValue = document.getElementById(`filter-${index}-column`)?.value || '';
+        const [tableName, columnName] = columnValue.split('|');
+        const operator = parseInt(document.getElementById(`filter-${index}-operator`)?.value || '0');
+        const value = document.getElementById(`filter-${index}-value`)?.value || '';
+        const logic = parseInt(document.getElementById(`filter-${index}-logic`)?.value || '0');
+        
+        filter.TableName = tableName || '';
+        filter.Column = columnName || '';
+        filter.Operator = operator;
+        filter.Value = value;
+        filter.LogicalOperator = logic;
+    });
+}
+
+// Gerar SQL
+async function generateSql() {
+    // Coletar dados dos formulários
+    collectJoinsData();
+    collectFiltersData();
+
+    const queryDefinition = {
+        Tables: queryBuilder.tables,
+        SelectedColumns: queryBuilder.selectedColumns,
+        Joins: queryBuilder.joins,
+        Filters: queryBuilder.filters,
+        Aliases: queryBuilder.aliases
+    };
+
+    try {
+        const response = await fetch('/QueryBuilder/GenerateSql', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(queryDefinition)
+        });
+
+        const result = await response.json();
+        
+        if (response.ok) {
+            document.getElementById('sqlPreview').innerHTML = '<code>' + result.sql + '</code>';
+            // Mudar para aba SQL
+            const sqlTab = new bootstrap.Tab(document.getElementById('sql-tab'));
+            sqlTab.show();
+        } else {
+            alert('Erro ao gerar SQL: ' + (result.errors?.join(', ') || result.error));
+        }
+    } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao gerar SQL');
+    }
+}
+
+// Executar query
+async function executeQuery() {
+    const sql = document.getElementById('sqlPreview').innerText;
+    
+    if (!sql || sql.includes('Nenhuma query')) {
+        alert('Gere o SQL primeiro!');
+        return;
+    }
+
+    try {
+        const response = await fetch('/QueryBuilder/Execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sql: sql,
+                savedQueryId: savedQueryId > 0 ? savedQueryId : null,
+                queryName: savedQueryName || null
+            })
+        });
+
+        if (response.ok) {
+            // Redirecionar para página de resultados
+            window.location.href = '/QueryBuilder/Execute';
+        } else {
+            alert('Erro ao executar query');
+        }
+    } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao executar query');
+    }
+}
+
+// Salvar query
+function saveQuery() {
+    const sql = document.getElementById('sqlPreview').innerText;
+    
+    if (!sql || sql.includes('Nenhuma query')) {
+        alert('Gere o SQL primeiro!');
+        return;
+    }
+
+    // Abrir modal
+    const modal = new bootstrap.Modal(document.getElementById('saveQueryModal'));
+    
+    // Preencher com dados existentes se for edição
+    if (savedQueryName) {
+        document.getElementById('queryName').value = savedQueryName;
+        document.getElementById('queryDescription').value = savedQueryDescription;
+    }
+    
+    modal.show();
+}
+
+// Confirmar salvamento
+async function confirmSave() {
+    const name = document.getElementById('queryName').value;
+    const description = document.getElementById('queryDescription').value;
+    const sql = document.getElementById('sqlPreview').innerText;
+
+    if (!name) {
+        alert('Nome da query é obrigatório!');
+        return;
+    }
+
+    // Coletar dados finais
+    collectJoinsData();
+    collectFiltersData();
+
+    const queryDefinition = {
+        Tables: queryBuilder.tables,
+        SelectedColumns: queryBuilder.selectedColumns,
+        Joins: queryBuilder.joins,
+        Filters: queryBuilder.filters,
+        Aliases: queryBuilder.aliases
+    };
+
+    try {
+        const response = await fetch('/QueryBuilder/Save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                queryId: savedQueryId > 0 ? savedQueryId : null,
+                name: name,
+                description: description,
+                queryDefinition: queryDefinition,
+                generatedSql: sql
+            })
+        });
+
+        const result = await response.json();
+        
+        if (response.ok) {
+            alert('Query salva com sucesso!');
+            const modal = bootstrap.Modal.getInstance(document.getElementById('saveQueryModal'));
+            modal.hide();
+            
+            // Redirecionar para lista de queries salvas
+            window.location.href = '/SavedQueries';
+        } else {
+            alert('Erro ao salvar query: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao salvar query');
+    }
+}
+
+// Limpar tudo
+function clearAll() {
+    if (confirm('Tem certeza que deseja limpar tudo?')) {
+        queryBuilder = {
+            tables: [],
+            selectedColumns: [],
+            joins: [],
+            filters: [],
+            aliases: []
+        };
+        
+        updateSelectedTablesUI();
+        updateColumnsUI();
+        document.getElementById('joinsContainer').innerHTML = '<p class="text-muted">Nenhum JOIN configurado</p>';
+        document.getElementById('filtersContainer').innerHTML = '<p class="text-muted">Nenhum filtro configurado</p>';
+        document.getElementById('sqlPreview').innerHTML = '<code>-- Nenhuma query construída ainda</code>';
+    }
+}
+
+// Busca de tabelas
+document.addEventListener('DOMContentLoaded', function() {
+    const tableSearch = document.getElementById('tableSearch');
+    if (tableSearch) {
+        tableSearch.addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const tableItems = document.querySelectorAll('.table-item');
+            
+            tableItems.forEach(item => {
+                const tableName = item.querySelector('button').textContent.toLowerCase();
+                if (tableName.includes(searchTerm)) {
+                    item.style.display = '';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+});
