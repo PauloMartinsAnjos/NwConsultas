@@ -6,6 +6,7 @@ using NwConsultas.Models.QueryBuilder;
 using NwConsultas.Models.ViewModels;
 using NwConsultas.Services;
 using System.Diagnostics;
+using FirebirdSql.Data.FirebirdClient;
 
 namespace NwConsultas.Controllers
 {
