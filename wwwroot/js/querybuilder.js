@@ -180,10 +180,12 @@ async function loadTableColumns(tableName) {
 
 // Atualizar UI de colunas
 function updateColumnsUI() {
+    console.log('[QueryBuilder] 🔄 Atualizando UI de colunas...');
+    
     const container = document.getElementById('columnsContainer');
     
     if (!container) {
-        console.error('[QueryBuilder] Elemento columnsContainer não encontrado');
+        console.error('[QueryBuilder] ❌ Elemento columnsContainer não encontrado');
         return;
     }
     
@@ -276,6 +278,8 @@ function updateColumnsUI() {
             setColumnAlias(tableName, columnName, this.value);
         });
     });
+    
+    console.log('[QueryBuilder] ✅ UI de colunas atualizada');
 }
 
 // Helper para obter alias atual
@@ -288,12 +292,24 @@ function getColumnAlias(tableName, columnName) {
 
 // Toggle seleção de coluna
 function toggleColumn(tableName, columnName, isSelected) {
+    console.log(`[QueryBuilder] Toggle coluna: ${tableName}.${columnName} = ${isSelected}`);
+    
     if (isSelected) {
         // Adicionar coluna
         const table = queryBuilder.tables.find(t => t.TableName === tableName);
         const column = table?.Columns.find(c => c.ColumnName === columnName);
         
-        if (column) {
+        if (!column) {
+            console.error(`[QueryBuilder] ❌ Coluna não encontrada: ${tableName}.${columnName}`);
+            return;
+        }
+        
+        // Verificar se já existe
+        const exists = queryBuilder.selectedColumns.some(
+            c => c.TableName === tableName && c.ColumnName === columnName
+        );
+        
+        if (!exists) {
             queryBuilder.selectedColumns.push({
                 TableName: tableName,
                 ColumnName: columnName,
@@ -301,20 +317,30 @@ function toggleColumn(tableName, columnName, isSelected) {
                 IsNullable: column.IsNullable,
                 IsSelected: true
             });
+            console.log(`[QueryBuilder] ✅ Coluna adicionada: ${tableName}.${columnName}`);
         }
     } else {
         // Remover coluna
+        const beforeCount = queryBuilder.selectedColumns.length;
         queryBuilder.selectedColumns = queryBuilder.selectedColumns.filter(
             c => !(c.TableName === tableName && c.ColumnName === columnName)
         );
+        const afterCount = queryBuilder.selectedColumns.length;
         
-        // Remover alias
+        if (beforeCount > afterCount) {
+            console.log(`[QueryBuilder] ✅ Coluna removida: ${tableName}.${columnName}`);
+        }
+        
+        // Remover alias associado
         queryBuilder.aliases = queryBuilder.aliases.filter(
             a => !(a.TableName === tableName && a.ColumnName === columnName)
         );
     }
     
+    // APENAS atualizar UI, SEM gerar SQL automaticamente
     updateColumnsUI();
+    
+    console.log(`[QueryBuilder] Total de colunas selecionadas: ${queryBuilder.selectedColumns.length}`);
 }
 
 // Definir alias de coluna
@@ -532,17 +558,38 @@ function collectFiltersData() {
 
 // Gerar SQL
 async function generateSql() {
+    console.log('[QueryBuilder] 🔧 Gerando SQL...');
+    
+    // Validar se há tabelas selecionadas
+    if (!queryBuilder.tables || queryBuilder.tables.length === 0) {
+        alert('⚠️ Selecione pelo menos uma tabela antes de gerar SQL!');
+        return;
+    }
+    
+    // Validar se há colunas selecionadas
+    if (!queryBuilder.selectedColumns || queryBuilder.selectedColumns.length === 0) {
+        alert('⚠️ Selecione pelo menos uma coluna antes de gerar SQL!');
+        return;
+    }
+    
     // Coletar dados dos formulários
     collectJoinsData();
     collectFiltersData();
 
     const queryDefinition = {
-        Tables: queryBuilder.tables,
-        SelectedColumns: queryBuilder.selectedColumns,
-        Joins: queryBuilder.joins,
-        Filters: queryBuilder.filters,
-        Aliases: queryBuilder.aliases
+        Tables: queryBuilder.tables || [],
+        SelectedColumns: queryBuilder.selectedColumns || [],
+        Joins: queryBuilder.joins || [],
+        Filters: queryBuilder.filters || [],
+        Aliases: queryBuilder.aliases || []
     };
+    
+    console.log('[QueryBuilder] 📤 Dados a enviar:', queryDefinition);
+    console.log(`[QueryBuilder] - Tabelas: ${queryDefinition.Tables.length}`);
+    console.log(`[QueryBuilder] - Colunas: ${queryDefinition.SelectedColumns.length}`);
+    console.log(`[QueryBuilder] - JOINs: ${queryDefinition.Joins.length}`);
+    console.log(`[QueryBuilder] - Filtros: ${queryDefinition.Filters.length}`);
+    console.log(`[QueryBuilder] - Aliases: ${queryDefinition.Aliases.length}`);
 
     try {
         const response = await fetch('/QueryBuilder/GenerateSql', {
@@ -551,19 +598,48 @@ async function generateSql() {
             body: JSON.stringify(queryDefinition)
         });
 
-        const result = await response.json();
+        console.log(`[QueryBuilder] 📥 Response status: ${response.status}`);
         
-        if (response.ok) {
-            document.getElementById('sqlPreview').innerHTML = '<code>' + result.sql + '</code>';
-            // Mudar para aba SQL
-            const sqlTab = new bootstrap.Tab(document.getElementById('sql-tab'));
-            sqlTab.show();
-        } else {
-            alert('Erro ao gerar SQL: ' + (result.errors?.join(', ') || result.error));
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[QueryBuilder] ❌ Erro do servidor:', errorText);
+            
+            let errorMessage = 'Erro ao gerar SQL';
+            try {
+                const errorJson = JSON.parse(errorText);
+                if (errorJson.errors && Array.isArray(errorJson.errors)) {
+                    errorMessage = errorJson.errors.join('\n');
+                } else if (errorJson.error) {
+                    errorMessage = errorJson.error;
+                }
+            } catch {
+                errorMessage = errorText;
+            }
+            
+            alert(`❌ Erro ao gerar SQL:\n\n${errorMessage}`);
+            return;
         }
+        
+        const result = await response.json();
+        console.log('[QueryBuilder] ✅ SQL gerado:', result);
+        
+        if (result.sql) {
+            document.getElementById('sqlPreview').innerHTML = '<code>' + result.sql + '</code>';
+            console.log('[QueryBuilder] ✅ SQL exibido no preview');
+            
+            // Mudar para aba SQL
+            const sqlTab = document.querySelector('#sql-tab');
+            if (sqlTab) {
+                const tab = new bootstrap.Tab(sqlTab);
+                tab.show();
+            }
+        } else {
+            console.warn('[QueryBuilder] ⚠️ Nenhum SQL retornado');
+        }
+        
     } catch (error) {
-        console.error('Erro:', error);
-        alert('Erro ao gerar SQL');
+        console.error('[QueryBuilder] ❌ Erro na requisição:', error);
+        alert(`❌ Erro ao gerar SQL:\n\n${error.message}\n\nVerifique o console (F12) para mais detalhes.`);
     }
 }
 
