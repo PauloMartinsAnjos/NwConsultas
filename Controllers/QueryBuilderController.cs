@@ -157,7 +157,7 @@ namespace NwConsultas.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erro ao gerar SQL");
-                return StatusCode(500, new { error = $"Erro interno: {ex.Message}" });
+                return StatusCode(500, new { error = "Erro interno ao processar a requisição. Por favor, tente novamente." });
             }
         }
 

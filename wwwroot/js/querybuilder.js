@@ -624,7 +624,12 @@ async function generateSql() {
         console.log('[QueryBuilder] ✅ SQL gerado:', result);
         
         if (result.sql) {
-            document.getElementById('sqlPreview').innerHTML = '<code>' + result.sql + '</code>';
+            // Usar textContent para prevenir XSS
+            const sqlPreview = document.getElementById('sqlPreview');
+            const codeElement = document.createElement('code');
+            codeElement.textContent = result.sql;
+            sqlPreview.innerHTML = '';
+            sqlPreview.appendChild(codeElement);
             console.log('[QueryBuilder] ✅ SQL exibido no preview');
             
             // Mudar para aba SQL
