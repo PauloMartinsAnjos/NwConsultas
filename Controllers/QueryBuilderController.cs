@@ -79,11 +79,11 @@ namespace NwConsultas.Controllers
         {
             try
             {
-                _logger.LogInformation($"🔄 Carregando colunas da tabela: {tableName}");
+                _logger.LogInformation("Carregando colunas da tabela: {TableName}", tableName);
                 
                 if (string.IsNullOrWhiteSpace(tableName))
                 {
-                    _logger.LogWarning("❌ Nome da tabela não fornecido");
+                    _logger.LogWarning("Nome da tabela não fornecido");
                     return BadRequest(new { error = "Nome da tabela é obrigatório" });
                 }
                 
@@ -91,22 +91,29 @@ namespace NwConsultas.Controllers
                 
                 if (columns == null)
                 {
-                    _logger.LogWarning($"⚠️ GetColumnsAsync retornou null para tabela: {tableName}");
+                    _logger.LogWarning("GetColumnsAsync retornou null para tabela: {TableName}", tableName);
                     return Ok(new List<object>()); // Retornar array vazio ao invés de null
                 }
                 
-                _logger.LogInformation($"✅ {columns.Count} colunas carregadas da tabela {tableName}");
+                _logger.LogInformation("{Count} colunas carregadas da tabela {TableName}", columns.Count, tableName);
                 
                 return Json(columns);
             }
             catch (FbException fbEx)
             {
-                _logger.LogError(fbEx, $"❌ Erro Firebird ao carregar colunas da tabela {tableName}");
+                _logger.LogError(fbEx, "Erro Firebird ao carregar colunas da tabela {TableName}", tableName);
+                
+                // Verificar se é erro de cliente (tabela não encontrada, etc)
+                if (fbEx.ErrorCode == 335544569) // Table unknown
+                {
+                    return NotFound(new { error = $"Tabela '{tableName}' não encontrada no banco de dados" });
+                }
+                
                 return StatusCode(500, new { error = $"Erro no banco Firebird: {fbEx.Message}" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"❌ Erro ao carregar colunas da tabela {tableName}");
+                _logger.LogError(ex, "Erro ao carregar colunas da tabela {TableName}", tableName);
                 return StatusCode(500, new { error = $"Erro ao carregar colunas: {ex.Message}" });
             }
         }
