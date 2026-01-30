@@ -126,21 +126,38 @@ namespace NwConsultas.Controllers
         {
             try
             {
+                _logger.LogInformation("Recebida requisição para gerar SQL");
+                
+                if (queryDefinition == null)
+                {
+                    _logger.LogWarning("QueryDefinition é null");
+                    return BadRequest(new { error = "Definição da query não pode ser vazia" });
+                }
+                
+                _logger.LogInformation($"Tables: {queryDefinition.Tables?.Count ?? 0}");
+                _logger.LogInformation($"SelectedColumns: {queryDefinition.SelectedColumns?.Count ?? 0}");
+                _logger.LogInformation($"Joins: {queryDefinition.Joins?.Count ?? 0}");
+                _logger.LogInformation($"Filters: {queryDefinition.Filters?.Count ?? 0}");
+                
                 // Validar query
                 var (isValid, errors) = _queryBuilderService.ValidateQuery(queryDefinition);
                 if (!isValid)
                 {
+                    _logger.LogWarning($"Validação falhou: {string.Join(", ", errors)}");
                     return BadRequest(new { errors });
                 }
 
                 // Gerar SQL
                 var sql = _queryBuilderService.GenerateSql(queryDefinition);
+                
+                _logger.LogInformation($"SQL gerado com sucesso: {sql.Length} caracteres");
+                
                 return Json(new { sql });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erro ao gerar SQL");
-                return BadRequest(new { error = ex.Message });
+                return StatusCode(500, new { error = "Erro interno ao processar a requisição. Por favor, tente novamente." });
             }
         }
 
