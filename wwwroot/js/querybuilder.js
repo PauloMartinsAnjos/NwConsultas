@@ -80,27 +80,83 @@ function removeTable(index) {
 
 // Carregar colunas de uma tabela
 async function loadTableColumns(tableName) {
+    const spinner = document.getElementById('columnsLoadingSpinner');
+    const container = document.getElementById('columnsContainer');
+    
     try {
-        const response = await fetch(`/QueryBuilder/GetTableColumns?tableName=${tableName}`);
+        console.log('🔄 Carregando colunas da tabela:', tableName);
+        
+        // Mostrar spinner
+        if (spinner) spinner.classList.remove('d-none');
+        if (container) container.classList.add('d-none');
+        
+        const url = `/QueryBuilder/GetTableColumns?tableName=${encodeURIComponent(tableName)}`;
+        console.log('📡 URL da requisição:', url);
+        
+        const response = await fetch(url);
+        console.log('📥 Response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('❌ Erro HTTP:', response.status, errorText);
+            throw new Error(`Erro HTTP ${response.status}: ${errorText}`);
+        }
+        
         const columns = await response.json();
+        console.log('✅ Colunas recebidas:', columns);
+        
+        // Validar se é array
+        if (!Array.isArray(columns)) {
+            console.error('❌ Resposta não é um array:', columns);
+            throw new Error('Formato de resposta inválido - esperado array de colunas');
+        }
+        
+        // Validar se array não está vazio
+        if (columns.length === 0) {
+            console.warn('⚠️ Tabela não possui colunas ou está vazia');
+            alert(`A tabela "${tableName}" não possui colunas visíveis ou está vazia.`);
+            return;
+        }
         
         // Armazenar colunas na tabela
         const table = queryBuilder.tables.find(t => t.TableName === tableName);
         if (table) {
             table.Columns = columns;
+            console.log(`✅ ${columns.length} colunas armazenadas para ${tableName}`);
+        } else {
+            console.error('❌ Tabela não encontrada no estado:', tableName);
+            throw new Error('Tabela não encontrada no estado do builder');
         }
         
         // Atualizar UI de colunas
         updateColumnsUI();
+        console.log('✅ UI de colunas atualizada');
+        
     } catch (error) {
-        console.error('Erro ao carregar colunas:', error);
-        alert('Erro ao carregar colunas da tabela');
+        console.error('❌ Erro ao carregar colunas:', error);
+        alert(`Erro ao carregar colunas da tabela "${tableName}":\n\n${error.message}\n\nVerifique o console (F12) para mais detalhes.`);
+        
+        // Remover tabela da lista em caso de erro crítico
+        const tableIndex = queryBuilder.tables.findIndex(t => t.TableName === tableName);
+        if (tableIndex !== -1) {
+            queryBuilder.tables.splice(tableIndex, 1);
+            updateSelectedTablesUI();
+        }
+    } finally {
+        // Esconder spinner
+        if (spinner) spinner.classList.add('d-none');
+        if (container) container.classList.remove('d-none');
     }
 }
 
 // Atualizar UI de colunas
 function updateColumnsUI() {
     const container = document.getElementById('columnsContainer');
+    
+    if (!container) {
+        console.error('❌ Elemento columnsContainer não encontrado');
+        return;
+    }
     
     if (queryBuilder.tables.length === 0) {
         container.innerHTML = '<p class="text-muted">Selecione uma tabela para visualizar suas colunas</p>';
@@ -112,10 +168,18 @@ function updateColumnsUI() {
         html += `<h6 class="mt-3"><i class="fas fa-table"></i> ${table.TableName}</h6>`;
         html += '<div class="row">';
         
-        if (table.Columns && table.Columns.length > 0) {
+        if (table.Columns && Array.isArray(table.Columns) && table.Columns.length > 0) {
             table.Columns.forEach(column => {
+                // Validar propriedades da coluna (case-insensitive)
+                const columnName = column.ColumnName || column.columnName || 'UNDEFINED';
+                const dataType = column.DataType || column.dataType || 'Unknown';
+                
+                if (columnName === 'UNDEFINED') {
+                    console.warn('⚠️ Coluna sem nome detectada:', column);
+                }
+                
                 const isSelected = queryBuilder.selectedColumns.some(
-                    c => c.TableName === table.TableName && c.ColumnName === column.ColumnName
+                    c => c.TableName === table.TableName && c.ColumnName === columnName
                 );
                 
                 html += `
@@ -123,25 +187,38 @@ function updateColumnsUI() {
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" 
                                    ${isSelected ? 'checked' : ''}
-                                   onchange="toggleColumn('${table.TableName}', '${column.ColumnName}', this.checked)">
-                            <label class="form-check-label">
-                                ${column.ColumnName} <small class="text-muted">(${column.DataType})</small>
+                                   onchange="toggleColumn('${table.TableName}', '${columnName}', this.checked)"
+                                   id="col-${table.TableName}-${columnName}">
+                            <label class="form-check-label" for="col-${table.TableName}-${columnName}">
+                                ${columnName} <small class="text-muted">(${dataType})</small>
                             </label>
                         </div>
                         ${isSelected ? `
                             <input type="text" class="form-control form-control-sm mt-1" 
                                    placeholder="Alias (opcional)" 
-                                   onchange="setColumnAlias('${table.TableName}', '${column.ColumnName}', this.value)">
+                                   value="${getColumnAlias(table.TableName, columnName)}"
+                                   onchange="setColumnAlias('${table.TableName}', '${columnName}', this.value)">
                         ` : ''}
                     </div>
                 `;
             });
+        } else {
+            html += '<p class="text-muted">Nenhuma coluna disponível ou ainda carregando...</p>';
+            console.warn('⚠️ Tabela sem colunas:', table);
         }
         
         html += '</div>';
     });
     
     container.innerHTML = html;
+}
+
+// Helper para obter alias atual
+function getColumnAlias(tableName, columnName) {
+    const alias = queryBuilder.aliases.find(
+        a => a.TableName === tableName && a.ColumnName === columnName
+    );
+    return alias ? alias.Alias : '';
 }
 
 // Toggle seleção de coluna
