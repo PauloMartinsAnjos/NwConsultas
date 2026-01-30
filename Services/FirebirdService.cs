@@ -62,6 +62,8 @@ namespace NwConsultas.Services
 
             try
             {
+                _logger.LogInformation("Buscando colunas do Firebird para tabela: {TableName}", tableName);
+                
                 using var connection = new FbConnection(_connectionString);
                 await connection.OpenAsync();
 
@@ -85,6 +87,14 @@ namespace NwConsultas.Services
                 while (await reader.ReadAsync())
                 {
                     var columnName = reader.GetString(0).Trim();
+                    
+                    // Validar se nome da coluna não está vazio
+                    if (string.IsNullOrWhiteSpace(columnName))
+                    {
+                        _logger.LogWarning("Coluna com nome vazio detectada na tabela {TableName}", tableName);
+                        continue;
+                    }
+                    
                     var fieldType = reader.GetInt16(1);
                     var isNullable = reader.IsDBNull(3) ? true : reader.GetInt16(3) == 0;
 
@@ -97,11 +107,11 @@ namespace NwConsultas.Services
                     });
                 }
 
-                _logger.LogInformation($"Carregadas {columns.Count} colunas da tabela {tableName}");
+                _logger.LogInformation("Firebird retornou {Count} colunas para tabela {TableName}", columns.Count, tableName);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Erro ao carregar colunas da tabela {tableName}");
+                _logger.LogError(ex, "Erro ao buscar colunas do Firebird para tabela {TableName}", tableName);
                 throw;
             }
 

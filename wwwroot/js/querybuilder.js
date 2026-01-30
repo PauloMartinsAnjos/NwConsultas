@@ -8,6 +8,25 @@ let queryBuilder = {
     aliases: []
 };
 
+// Helper para escapar HTML e prevenir XSS
+function escapeHtml(unsafe) {
+    if (unsafe === null || unsafe === undefined) {
+        return '';
+    }
+    return String(unsafe)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// Helper para criar ID seguro a partir de string
+function makeSafeId(str) {
+    if (!str) return '';
+    return String(str).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 // Selecionartabela
 function selectTable(tableName) {
     // Verificar se já foi selecionada
@@ -80,27 +99,93 @@ function removeTable(index) {
 
 // Carregar colunas de uma tabela
 async function loadTableColumns(tableName) {
+    const spinner = document.getElementById('columnsLoadingSpinner');
+    const container = document.getElementById('columnsContainer');
+    
     try {
-        const response = await fetch(`/QueryBuilder/GetTableColumns?tableName=${tableName}`);
+        console.log('[QueryBuilder] Carregando colunas da tabela:', tableName);
+        
+        // Mostrar spinner
+        if (spinner) spinner.classList.remove('d-none');
+        if (container) container.classList.add('d-none');
+        
+        const url = `/QueryBuilder/GetTableColumns?tableName=${encodeURIComponent(tableName)}`;
+        console.log('[QueryBuilder] URL da requisição:', url);
+        
+        const response = await fetch(url);
+        console.log('[QueryBuilder] Response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[QueryBuilder] Erro HTTP:', response.status, errorText);
+            throw new Error(`Erro HTTP ${response.status}: ${errorText}`);
+        }
+        
         const columns = await response.json();
+        console.log('[QueryBuilder] Colunas recebidas:', columns);
+        
+        // Validar se é array
+        if (!Array.isArray(columns)) {
+            console.error('[QueryBuilder] Resposta não é um array:', columns);
+            throw new Error('Formato de resposta inválido - esperado array de colunas');
+        }
+        
+        // Validar se array não está vazio
+        if (columns.length === 0) {
+            console.warn('[QueryBuilder] Tabela não possui colunas ou está vazia');
+            alert(`A tabela "${tableName}" não possui colunas visíveis ou está vazia.`);
+            // Não remover a tabela neste caso, apenas avisar
+            const table = queryBuilder.tables.find(t => t.TableName === tableName);
+            if (table) {
+                table.Columns = [];
+            }
+            updateColumnsUI();
+            return;
+        }
         
         // Armazenar colunas na tabela
         const table = queryBuilder.tables.find(t => t.TableName === tableName);
         if (table) {
             table.Columns = columns;
+            console.log(`[QueryBuilder] ${columns.length} colunas armazenadas para ${tableName}`);
+        } else {
+            console.error('[QueryBuilder] Tabela não encontrada no estado:', tableName);
+            throw new Error('Tabela não encontrada no estado do builder');
         }
         
         // Atualizar UI de colunas
         updateColumnsUI();
+        console.log('[QueryBuilder] UI de colunas atualizada');
+        
     } catch (error) {
-        console.error('Erro ao carregar colunas:', error);
-        alert('Erro ao carregar colunas da tabela');
+        console.error('[QueryBuilder] Erro ao carregar colunas:', error);
+        
+        // Mensagem simples e amigável para o usuário
+        alert(`Erro ao carregar colunas da tabela "${tableName}". Por favor, tente novamente ou verifique os logs do console para mais detalhes.`);
+        
+        // Remover tabela da lista apenas para erros críticos (não para tabela vazia)
+        if (error.message && !error.message.includes('vazia')) {
+            const tableIndex = queryBuilder.tables.findIndex(t => t.TableName === tableName);
+            if (tableIndex !== -1) {
+                queryBuilder.tables.splice(tableIndex, 1);
+                updateSelectedTablesUI();
+            }
+        }
+    } finally {
+        // Esconder spinner
+        if (spinner) spinner.classList.add('d-none');
+        if (container) container.classList.remove('d-none');
     }
 }
 
 // Atualizar UI de colunas
 function updateColumnsUI() {
     const container = document.getElementById('columnsContainer');
+    
+    if (!container) {
+        console.error('[QueryBuilder] Elemento columnsContainer não encontrado');
+        return;
+    }
     
     if (queryBuilder.tables.length === 0) {
         container.innerHTML = '<p class="text-muted">Selecione uma tabela para visualizar suas colunas</p>';
@@ -109,39 +194,96 @@ function updateColumnsUI() {
 
     let html = '';
     queryBuilder.tables.forEach(table => {
-        html += `<h6 class="mt-3"><i class="fas fa-table"></i> ${table.TableName}</h6>`;
+        const tableNameEscaped = escapeHtml(table.TableName);
+        html += `<h6 class="mt-3"><i class="fas fa-table"></i> ${tableNameEscaped}</h6>`;
         html += '<div class="row">';
         
-        if (table.Columns && table.Columns.length > 0) {
+        if (table.Columns && Array.isArray(table.Columns) && table.Columns.length > 0) {
             table.Columns.forEach(column => {
+                // Validar propriedades da coluna (case-insensitive)
+                const columnName = column.ColumnName || column.columnName;
+                const dataType = column.DataType || column.dataType || 'Unknown';
+                
+                // Pular colunas sem nome
+                if (!columnName) {
+                    console.warn('[QueryBuilder] Coluna sem nome detectada:', column);
+                    return;
+                }
+                
                 const isSelected = queryBuilder.selectedColumns.some(
-                    c => c.TableName === table.TableName && c.ColumnName === column.ColumnName
+                    c => c.TableName === table.TableName && c.ColumnName === columnName
                 );
                 
-                html += `
-                    <div class="col-md-6 mb-2">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" 
-                                   ${isSelected ? 'checked' : ''}
-                                   onchange="toggleColumn('${table.TableName}', '${column.ColumnName}', this.checked)">
-                            <label class="form-check-label">
-                                ${column.ColumnName} <small class="text-muted">(${column.DataType})</small>
-                            </label>
-                        </div>
-                        ${isSelected ? `
-                            <input type="text" class="form-control form-control-sm mt-1" 
-                                   placeholder="Alias (opcional)" 
-                                   onchange="setColumnAlias('${table.TableName}', '${column.ColumnName}', this.value)">
-                        ` : ''}
+                // Criar ID seguro para o checkbox
+                const safeId = `col-${makeSafeId(table.TableName)}-${makeSafeId(columnName)}`;
+                
+                // Escapar valores para HTML
+                const columnNameEscaped = escapeHtml(columnName);
+                const dataTypeEscaped = escapeHtml(dataType);
+                
+                // Criar elemento usando DOM para evitar XSS
+                const colDiv = document.createElement('div');
+                colDiv.className = 'col-md-6 mb-2';
+                colDiv.innerHTML = `
+                    <div class="form-check">
+                        <input class="form-check-input column-checkbox" type="checkbox" 
+                               ${isSelected ? 'checked' : ''}
+                               id="${safeId}"
+                               data-table="${tableNameEscaped}"
+                               data-column="${columnNameEscaped}">
+                        <label class="form-check-label" for="${safeId}">
+                            ${columnNameEscaped} <small class="text-muted">(${dataTypeEscaped})</small>
+                        </label>
                     </div>
                 `;
+                
+                if (isSelected) {
+                    const aliasInput = document.createElement('input');
+                    aliasInput.type = 'text';
+                    aliasInput.className = 'form-control form-control-sm mt-1 column-alias';
+                    aliasInput.placeholder = 'Alias (opcional)';
+                    aliasInput.value = getColumnAlias(table.TableName, columnName);
+                    aliasInput.dataset.table = table.TableName;
+                    aliasInput.dataset.column = columnName;
+                    colDiv.appendChild(aliasInput);
+                }
+                
+                html += colDiv.outerHTML;
             });
+        } else {
+            html += '<p class="text-muted">Nenhuma coluna disponível ou ainda carregando...</p>';
+            console.warn('[QueryBuilder] Tabela sem colunas:', table);
         }
         
         html += '</div>';
     });
     
     container.innerHTML = html;
+    
+    // Adicionar event listeners após inserir o HTML
+    document.querySelectorAll('.column-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const tableName = this.dataset.table;
+            const columnName = this.dataset.column;
+            toggleColumn(tableName, columnName, this.checked);
+        });
+    });
+    
+    document.querySelectorAll('.column-alias').forEach(input => {
+        input.addEventListener('change', function() {
+            const tableName = this.dataset.table;
+            const columnName = this.dataset.column;
+            setColumnAlias(tableName, columnName, this.value);
+        });
+    });
+}
+
+// Helper para obter alias atual
+function getColumnAlias(tableName, columnName) {
+    const alias = queryBuilder.aliases.find(
+        a => a.TableName === tableName && a.ColumnName === columnName
+    );
+    return alias ? alias.Alias : '';
 }
 
 // Toggle seleção de coluna
